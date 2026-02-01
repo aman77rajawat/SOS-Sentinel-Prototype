@@ -1,6 +1,6 @@
 # 🚁 SOS-Sentinel: Autonomous Pilot System
 
-**Branch:** `pilot-dev`\
+**Branch:** `pilot-dev`
 **Role:** Autonomous Drone Control Logic
 
 This repository contains the **"Brain"** of the SOS-Sentinel system. It
@@ -12,10 +12,10 @@ monitoring, fail-safe logic, and dynamic coordinate navigation.
 
 ## 🛠️ Tech Stack
 
--   **Language:** Python 3.7+\
--   **Protocol:** MAVLink v2.0\
--   **Library:** `pymavlink` (Standard ArduPilot Library)\
--   **Simulation:** ArduPilot SITL (Software In The Loop)\
+-   **Language:** Python 3.7+
+-   **Protocol:** MAVLink v2.0
+-   **Library:** `pymavlink` (Standard ArduPilot Library)
+-   **Simulation:** ArduPilot SITL (Software In The Loop)
 -   **GCS:** Mission Planner
 
 ------------------------------------------------------------------------
@@ -50,26 +50,26 @@ pip install pymavlink
 
 ### Step 1️⃣ Start Simulation
 
-1.  Open Mission Planner\
-2.  Go to Simulation tab\
-3.  Click Multirotor\
+1.  Open Mission Planner
+2.  Go to Simulation tab
+3.  Click Multirotor
 4.  Wait for:
-    -   GPS: 3D Fix\
-    -   Ready to Arm\
+    -   GPS: 3D Fix
+    -   Ready to Arm
     -   Drone visible on map
 
 ------------------------------------------------------------------------
 
 ### Step 2️⃣ Create the MAVLink Bridge
 
--   Ctrl + F → Temp screen\
--   Click Mavlink\
+-   Ctrl + F → Temp screen
+-   Click Mavlink
 -   Configure row:
 
-Type: UDP Client\
-Direction: Outbound\
-Port: 14552\
-Host: 127.0.0.1\
+Type: UDP Client
+Direction: Outbound
+Port: 14552
+Host: 127.0.0.1
 Write: Checked
 
 Click Start
