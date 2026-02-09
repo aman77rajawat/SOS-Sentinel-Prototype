@@ -4,7 +4,7 @@
   "main": "Scr/index.js",
   "type": "module",
   "scripts": {
-    "server": "nodemon Scr/index.js"
+    "server": "nodemon index.js"
   },
   "author": "",
   "license": "ISC",
