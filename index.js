@@ -1,316 +1,320 @@
-import express from "express"
-import dotenv from "dotenv"
-import cors from "cors"
-import mongoose from "mongoose"
-import { createServer } from 'node:http';
-import { Server } from 'socket.io';
 
 
-dotenv.config()
+import express from "express";
+import dotenv from "dotenv";
+import cors from "cors";
+import { createServer } from "node:http";
+import { Server } from "socket.io";
+
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5000;
+
+app.use(cors());
+app.use(express.json());
+
 const server = createServer(app);
 
 const io = new Server(server, {
-  cors: {
-    origin: "*"
-  }
+  cors: { origin: "*" },
 });
 
-app.use(cors())
+// ================================
+// MEMORY STORAGE
+// ================================
+let connectedUsers = [];
+let DroneList = [];
+let activeSOSRequests = [];
 
-let connectedUsers = []
-let DroneList = []
-let activeSOSRequests = [] 
+// ================================
+// SOCKET SERVER
+// ================================
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
 
-// Socket Server
-io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
-
-  
+  // ================================
+  // REGISTER USER
+  // ================================
   socket.on("register-user", ({ username, lat, lon, alt }) => {
-    let userdata = { 
-      id: socket.id, 
-      username: username,
-      lat: lat || 0,
-      lon: lon || 0,
-      alt: alt || 0,
-      type: 'user'
-    }
-    connectedUsers.push(userdata)
-    io.emit("connected-users", connectedUsers);
-    console.log(`User registered: ${username} at (${lat}, ${lon})`);
-  });
 
-  socket.on("register-drone", ({ droneId, droneName, lat, lon, alt, status }) => {
-    let droneData = {
+    // remove duplicates (FIX)
+    connectedUsers = connectedUsers.filter(u => u.id !== socket.id);
+
+    const userdata = {
       id: socket.id,
-      droneId: droneId,
-      droneName: droneName,
+      username,
       lat: lat || 0,
       lon: lon || 0,
       alt: alt || 0,
-      status: status || 'idle', 
-      assignedUser: null,
-      type: 'drone'
-    }
-    DroneList.push(droneData)
-    io.emit("drone-list", DroneList);
-    console.log(`Drone registered: ${droneName} at (${lat}, ${lon})`);
+      type: "user",
+    };
+
+    connectedUsers.push(userdata);
+
+    io.emit("connected-users", connectedUsers);
+    console.log(`User registered: ${username}`);
   });
 
-  // User sends SOS signal On server
+  // ================================
+  // REGISTER DRONE
+  // ================================
+  socket.on("register-drone", ({ droneId, droneName, lat, lon, alt, status }) => {
+
+    // remove duplicates (FIX)
+    DroneList = DroneList.filter(d => d.id !== socket.id);
+
+    const droneData = {
+      id: socket.id,
+      droneId,
+      droneName,
+      lat: lat || 0,
+      lon: lon || 0,
+      alt: alt || 0,
+      status: status || "idle",
+      assignedUser: null,
+      type: "drone",
+    };
+
+    DroneList.push(droneData);
+
+    io.emit("drone-list", DroneList);
+    console.log(`Drone registered: ${droneName}`);
+  });
+
+  // ================================
+  // SEND SOS
+  // ================================
   socket.on("send-sos", ({ username, lat, lon, alt, message }) => {
+
+    // prevent duplicate SOS from same user
+    const alreadyExists = activeSOSRequests.find(
+      s => s.userId === socket.id && s.status !== "completed"
+    );
+    if (alreadyExists) return;
+
     const sosRequest = {
       userId: socket.id,
-      username: username,
-      lat: lat,
-      lon: lon,
+      username,
+      lat,
+      lon,
       alt: alt || 0,
       message: message || "Emergency assistance needed",
       timestamp: Date.now(),
-      status: 'pending'
-    }
-    
-    activeSOSRequests.push(sosRequest)
-    
-    // Notify all drones about the SOS
+      status: "pending",
+    };
+
+    activeSOSRequests.push(sosRequest);
+
     io.emit("sos-alert", sosRequest);
-    
-    // Send confirmation to user
-    socket.emit("sos-sent", { 
-      success: true, 
-      message: "SOS signal sent to all available drones",
-      sosRequest 
+
+    socket.emit("sos-sent", {
+      success: true,
+      message: "SOS sent",
+      sosRequest,
     });
-    
-    console.log(`SOS received from ${username} at (${lat}, ${lon})`);
+
+      console.log(`SOS received from ${username}`);
+      //added
+      console.log("Lat:", lat);
+      console.log("Lon:", lon);
+      console.log("Alt:", alt);
+
   });
 
-  // User updates their location (real-time tracking)
+  // ================================
+  // UPDATE USER LOCATION
+  // ================================
   socket.on("update-location", ({ lat, lon, alt }) => {
-    // Update user location in connectedUsers
-    const userIndex = connectedUsers.findIndex(user => user.id === socket.id)
-    if (userIndex !== -1) {
-      connectedUsers[userIndex].lat = lat
-      connectedUsers[userIndex].lon = lon
-      connectedUsers[userIndex].alt = alt || 0
-      
-      // Find if this user has an active SOS
-      const sosIndex = activeSOSRequests.findIndex(sos => sos.userId === socket.id)
-      if (sosIndex !== -1) {
-        activeSOSRequests[sosIndex].lat = lat
-        activeSOSRequests[sosIndex].lon = lon
-        activeSOSRequests[sosIndex].alt = alt || 0
-        
-        // Send updated location to assigned drone
-        const assignedDrone = DroneList.find(drone => drone.assignedUser === socket.id)
-        if (assignedDrone) {
-          io.to(assignedDrone.id).emit("target-location-updated", {
-            userId: socket.id,
-            username: connectedUsers[userIndex].username,
-            lat: lat,
-            lon: lon,
-            alt: alt || 0
-          });
-        }
-      }
-    }
-  });
 
-  // Drone accepts SOS and starts following
+  // Added THIS (live debug)
+  console.log("LIVE LOCATION UPDATE");
+  console.log("Lat:", lat);
+  console.log("Lon:", lon);
+  console.log("Alt:", alt);
+
+  const user = connectedUsers.find(u => u.id === socket.id);
+  if (!user) return;
+
+  user.lat = lat;
+  user.lon = lon;
+  user.alt = alt || 0;
+
+  const sos = activeSOSRequests.find(s => s.userId === socket.id);
+
+  if (sos) {
+    sos.lat = lat;
+    sos.lon = lon;
+    sos.alt = alt || 0;
+
+    const assignedDrone = DroneList.find(
+      d => d.assignedUser === socket.id
+    );
+
+    if (assignedDrone) {
+      io.to(assignedDrone.id).emit("target-location-updated", {
+        userId: socket.id,
+        username: user.username,
+        lat,
+        lon,
+        alt: alt || 0,
+      });
+    }
+  }
+});
+
+
+  // ================================
+  // DRONE ACCEPT SOS
+  // ================================
   socket.on("accept-sos", ({ userId }) => {
-    const droneIndex = DroneList.findIndex(drone => drone.id === socket.id)
-    const sosIndex = activeSOSRequests.findIndex(sos => sos.userId === userId)
-    
-    if (droneIndex !== -1 && sosIndex !== -1) {
-      // Update drone status
-      DroneList[droneIndex].status = 'responding'
-      DroneList[droneIndex].assignedUser = userId
-      
-      // Update SOS status
-      activeSOSRequests[sosIndex].status = 'assigned'
-      
-      // Notify the user that help is on the way
-      io.to(userId).emit("sos-accepted", {
-        droneId: DroneList[droneIndex].droneId,
-        droneName: DroneList[droneIndex].droneName,
-        droneLocation: {
-          lat: DroneList[droneIndex].lat,
-          lon: DroneList[droneIndex].lon,
-          alt: DroneList[droneIndex].alt
-        }
-      });
-      
-      // Send target location to drone
-      const userLocation = activeSOSRequests[sosIndex]
-      socket.emit("navigate-to-target", {
-        userId: userId,
-        username: userLocation.username,
-        lat: userLocation.lat,
-        lon: userLocation.lon,
-        alt: userLocation.alt
-      });
-      
-      io.emit("drone-list", DroneList);
-      console.log(`Drone ${DroneList[droneIndex].droneName} responding to ${userLocation.username}`);
-    }
+
+    const drone = DroneList.find(d => d.id === socket.id);
+    const sos = activeSOSRequests.find(s => s.userId === userId);
+
+    if (!drone || !sos) return;
+
+    // prevent double accept (FIX)
+    if (sos.status !== "pending") return;
+
+    drone.status = "responding";
+    drone.assignedUser = userId;
+    sos.status = "assigned";
+
+    io.to(userId).emit("sos-accepted", {
+      droneId: drone.droneId,
+      droneName: drone.droneName,
+      droneLocation: {
+        lat: drone.lat,
+        lon: drone.lon,
+        alt: drone.alt,
+      },
+    });
+
+    socket.emit("navigate-to-target", sos);
+
+    io.emit("drone-list", DroneList);
   });
 
-  // Drone updates its location
+  // ================================
+  // DRONE LOCATION UPDATE
+  // ================================
   socket.on("drone-location-update", ({ lat, lon, alt, status }) => {
-    const droneIndex = DroneList.findIndex(drone => drone.id === socket.id)
-    if (droneIndex !== -1) {
-      DroneList[droneIndex].lat = lat
-      DroneList[droneIndex].lon = lon
-      DroneList[droneIndex].alt = alt || 0
-      if (status) DroneList[droneIndex].status = status
-      
-      // If drone is tracking a user, send location update to that user
-      if (DroneList[droneIndex].assignedUser) {
-        io.to(DroneList[droneIndex].assignedUser).emit("drone-location-update", {
-          droneId: DroneList[droneIndex].droneId,
-          lat: lat,
-          lon: lon,
-          alt: alt,
-          status: status
-        });
-      }
-      
-      io.emit("drone-list", DroneList);
+    const drone = DroneList.find(d => d.id === socket.id);
+    if (!drone) return;
+
+    drone.lat = lat;
+    drone.lon = lon;
+    drone.alt = alt || 0;
+    if (status) drone.status = status;
+
+    if (drone.assignedUser) {
+      io.to(drone.assignedUser).emit("drone-location-update", {
+        droneId: drone.droneId,
+        lat,
+        lon,
+        alt,
+        status,
+      });
     }
+
+    io.emit("drone-list", DroneList);
   });
 
-  // Drone arrives at user location
+  // ================================
+  // ARRIVED
+  // ================================
   socket.on("arrived-at-target", ({ userId }) => {
-    const droneIndex = DroneList.findIndex(drone => drone.id === socket.id)
-    if (droneIndex !== -1) {
-      DroneList[droneIndex].status = 'arrived'
-      
-      io.to(userId).emit("drone-arrived", {
-        droneId: DroneList[droneIndex].droneId,
-        droneName: DroneList[droneIndex].droneName
-      });
-      
-      io.emit("drone-list", DroneList);
-    }
+    const drone = DroneList.find(d => d.id === socket.id);
+    if (!drone) return;
+
+    drone.status = "arrived";
+
+    io.to(userId).emit("drone-arrived", {
+      droneId: drone.droneId,
+      droneName: drone.droneName,
+    });
+
+    io.emit("drone-list", DroneList);
   });
 
-  // Complete SOS mission
+  // ================================
+  // COMPLETE SOS
+  // ================================
   socket.on("complete-sos", ({ userId }) => {
-    const droneIndex = DroneList.findIndex(drone => drone.id === socket.id)
-    const sosIndex = activeSOSRequests.findIndex(sos => sos.userId === userId)
-    
-    if (droneIndex !== -1) {
-      DroneList[droneIndex].status = 'idle'
-      DroneList[droneIndex].assignedUser = null
-      io.emit("drone-list", DroneList);
+    const drone = DroneList.find(d => d.id === socket.id);
+    const sosIndex = activeSOSRequests.findIndex(
+      s => s.userId === userId
+    );
+
+    if (drone) {
+      drone.status = "idle";
+      drone.assignedUser = null;
     }
-    
+
     if (sosIndex !== -1) {
-      activeSOSRequests[sosIndex].status = 'completed'
-      io.to(userId).emit("sos-completed", {
-        message: "Mission completed. Stay safe!"
-      });
+      activeSOSRequests[sosIndex].status = "completed";
+      io.to(userId).emit("sos-completed");
     }
+
+    io.emit("drone-list", DroneList);
   });
 
-  // Cancel SOS
+  // ================================
+  // CANCEL SOS
+  // ================================
   socket.on("cancel-sos", () => {
-    const sosIndex = activeSOSRequests.findIndex(sos => sos.userId === socket.id)
-    if (sosIndex !== -1) {
-      const assignedDrone = DroneList.find(drone => drone.assignedUser === socket.id)
-      if (assignedDrone) {
-        assignedDrone.status = 'idle'
-        assignedDrone.assignedUser = null
-        io.to(assignedDrone.id).emit("sos-cancelled", {
-          message: "SOS has been cancelled by user"
-        });
-      }
-      
-      activeSOSRequests.splice(sosIndex, 1)
-      socket.emit("sos-cancelled-confirm", { success: true })
+    const sosIndex = activeSOSRequests.findIndex(
+      s => s.userId === socket.id
+    );
+
+    if (sosIndex === -1) return;
+
+    const assignedDrone = DroneList.find(
+      d => d.assignedUser === socket.id
+    );
+
+    if (assignedDrone) {
+      assignedDrone.status = "idle";
+      assignedDrone.assignedUser = null;
+
+      io.to(assignedDrone.id).emit("sos-cancelled");
     }
+
+    activeSOSRequests.splice(sosIndex, 1);
+
+    socket.emit("sos-cancelled-confirm", { success: true });
   });
 
-  // Get active SOS requests
-  socket.on("get-sos-requests", () => {
-    socket.emit("sos-requests-list", activeSOSRequests);
-  });
+  // ================================
+  // DISCONNECT
+  // ================================
+  socket.on("disconnect", () => {
+    connectedUsers = connectedUsers.filter(u => u.id !== socket.id);
+    DroneList = DroneList.filter(d => d.id !== socket.id);
 
-  // Private messaging (existing functionality)
-  socket.on('private_message', ({ from, to, message }) => {
-    if (to) {
-      io.to(to).emit('private_message', {
-        to,
-        from,
-        message,
-        timestamp: Date.now(),
-      });
-    }
-  });
+    activeSOSRequests = activeSOSRequests.filter(
+      s => s.userId !== socket.id
+    );
 
-  socket.on('message_seen', ({ senderId }) => {
-    const senderSocketId = connectedUsers.find(u => u.id === senderId)?.id;
-    if (senderSocketId) {
-      io.to(senderSocketId).emit('message_seen_ack', {
-        seen: true,
-        timestamp: Date.now(),
-      });
-    }
-  });
+    io.emit("connected-users", connectedUsers);
+    io.emit("drone-list", DroneList);
 
-  // Disconnect handling
-  socket.on('disconnect', () => {
-    // Remove from users
-    const userIndex = connectedUsers.findIndex(user => user.id === socket.id)
-    if (userIndex !== -1) {
-      const user = connectedUsers[userIndex]
-      
-      // Cancel any active SOS from this user
-      const sosIndex = activeSOSRequests.findIndex(sos => sos.userId === socket.id)
-      if (sosIndex !== -1) {
-        const assignedDrone = DroneList.find(drone => drone.assignedUser === socket.id)
-        if (assignedDrone) {
-          assignedDrone.status = 'idle'
-          assignedDrone.assignedUser = null
-        }
-        activeSOSRequests.splice(sosIndex, 1)
-      }
-      
-      connectedUsers.splice(userIndex, 1)
-      io.emit("connected-users", connectedUsers);
-    }
-    
-    // Remove from drones
-    const droneIndex = DroneList.findIndex(drone => drone.id === socket.id)
-    if (droneIndex !== -1) {
-      const drone = DroneList[droneIndex]
-      
-      // Notify assigned user if drone disconnects
-      if (drone.assignedUser) {
-        io.to(drone.assignedUser).emit("drone-disconnected", {
-          droneId: drone.droneId,
-          message: "Drone has disconnected"
-        });
-      }
-      
-      DroneList.splice(droneIndex, 1)
-      io.emit("drone-list", DroneList);
-    }
-    
-    console.log('User disconnected:', socket.id);
+    console.log("User disconnected:", socket.id);
   });
 });
 
-app.use(express.json())
+// ================================
+app.get("/", (req, res) => {
+  res.send({ status: "Server Running" });
+});
 
-app.get('/', (req, res) => {
-  res.send({ "status": "Server Running" })
-})
+// ================================
+// server.listen(PORT, () =>
+//   console.log(`Server running on port ${PORT}`)
+// );
 
-
-
-
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+//for real phone testing use this 
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+});
